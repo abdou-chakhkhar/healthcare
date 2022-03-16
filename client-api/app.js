@@ -103,7 +103,119 @@ app.post('/users', async (req, res) => {});
 app.post('/register', async (req, res) => {});
 
 // validate a user
-app.post('/validateUser', async (req, res) => {});
+app.post('/validateUser', async (req, res) => {
+    let { email, org } = req.body;
+    logger.debug('End point : /validateUser');
+    logger.debug('Email id : ' + email);
+    logger.debug('Org : ' + org);
+
+    if(!email){
+        res.json(getErrorMessage('\'email\''));
+        return;
+    }
+
+    try {
+        let token = jwt.sign({
+            exp: Math.floor(Date.now() / 1000) + parseInt(constants.jwt_expiretime),
+            email,
+            mspid: org
+        }, app.get('secret'));
+
+        let isUserRegistered = await helper.isUserRegistered(email, org);
+
+        if(isUserRegistered){
+            let res_msg = {
+                success: true,
+                token,
+                message: 'Registered user'
+            };
+            res.json(res_msg);
+        } else {
+            let res_msg = {
+                success: false,
+                token: '',
+                message: `User with Emailid ${email} is not registered, Please register first.`
+            };
+            res.json(res_msg);
+        }
+    } catch (error) {
+        console.log(error);
+    }
+
+});
 
 // login and get jwt
 app.post('/users/login', async (req, res) => {});
+
+// Register Patient
+app.post('/patients/register', async (req, res) => {});
+
+// Invoke transaction on chaincode on target peers
+app.post('/channels/:channelName/chaincodes/:chaincodeName', async (req, res) => {
+    try {
+        logger.debug('===================== INVOKE ON CHAINCODE =====================');
+        let peers = req.body.peers;
+        let chaincodeName = req.params.chaincodeName;
+        let channelName = req.params.channelName;
+        let fcn = req.body.fcn;
+        let args = req.body.args;
+        let transient = req.body.transient;
+        let orgName = req.orgname;
+        let userEmail = req.useremail;
+
+        logger.debug('Transient data is ;' + transient);
+        logger.debug('channelName : ' + channelName);
+        logger.debug('chaincodeName : ' + chaincodeName);
+        logger.debug('fcn : ' + fcn);
+        logger.debug('args : ' + args);
+        logger.debug('org : ' + orgName);
+
+        if(!chaincodeName) {
+            res.json(getErrorMessage('\'chaincodeName\''));
+            return;
+        }
+        if(!channelName){
+            res.json(getErrorMessage('\'channelName\''));
+            return;
+        }
+        if(!fcn){
+            res.json(getErrorMessage('\'fcn\''));
+            return;
+        }
+        if(!args){
+            res.json(getErrorMessage('\'args\''));
+            return;
+        }
+
+        let message = await invoke.invokeTransaction(channelName, chaincodeName, fcn, args, userEmail, orgName, transient);
+        console.log('message result is : ' + message.message);
+        if(message.message.startsWith('Successfully ')){
+            const response_payload = {
+                success: true,
+                result: message,
+                errorData: null
+            };
+            res.send(response_payload);
+        } else {
+            const response_payload = {
+                success: false,
+                result: null,
+                errorData: message
+            };
+            res.send(response_payload);
+        }
+
+    } catch (error) {
+        const response_payload = {
+            success: false,
+            result: null,
+            error: error.name,
+            errorData: error.message
+        };
+        res.send(response_payload);
+    }
+});
+
+app.get('/channels/:channelName/chaincodes/:chaincodeName', async (req, res) => {});
+
+app.post('/qscc/channels/:channelName/chaincodes/:chaincodeName', async (req, res) => {});
