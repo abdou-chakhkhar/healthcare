@@ -216,6 +216,39 @@ app.post('/channels/:channelName/chaincodes/:chaincodeName', async (req, res) =>
     }
 });
 
-app.get('/channels/:channelName/chaincodes/:chaincodeName', async (req, res) => {});
+app.get('/channels/:channelName/chaincodes/:chaincodeName', async (req, res) => {
+    try {
+        logger.debug('===================== INVOKE ON CHAINCODE =====================');
+        let channelName = req.params.channelName;
+        let chaincodeName = req.params.chaincodeName;
+        console.log(`chaincode name is :${chaincodeName}` );
+        let args = req.query.args;
+        let fcn = req.query.fcn;
+        let peer = req.query.peer;
+
+        args = args.replace(/'/g, '""');
+        logger.debug(args);
+
+
+        logger.debug('channelName : ' + channelName);
+        logger.debug('chaincodeName : ' + chaincodeName);
+        logger.debug('fcn : ' + fcn);
+        logger.debug('args : ' + args);
+
+        if(!chaincodeName){
+            res.json(getErrorMessage('\'chaincodeName\''));
+            return;
+        }
+
+        if(!channelName){
+            res.json(getErrorMessage('\'channelName\''));
+            return;
+        }
+
+
+    } catch (error) {
+        
+    }
+});
 
 app.post('/qscc/channels/:channelName/chaincodes/:chaincodeName', async (req, res) => {});
