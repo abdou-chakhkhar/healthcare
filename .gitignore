@@ -1,3 +1,4 @@
 bin
 config
 client-api/node_modules
+front/node_modules
