@@ -1,4 +1,6 @@
 import React from 'react';
+import 'bootstrap/dist/css/bootstrap.css';
+import 'antd/dist/antd.css'; // or 'antd/dist/antd.less'
 import ReactDOM from 'react-dom';
 import './index.css';
 import App from './App';
