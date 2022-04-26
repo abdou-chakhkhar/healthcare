@@ -183,40 +183,41 @@ class PrivateAssetTransfer extends Contract {
 
     }
 
+    // ReadAsset reads the information from collection
     async ReadAsset(ctx, assetID) {
         const assetJSON = await ctx.stub.getPrivateData(assetCollection, assetID);
-        console.log("AAAAAAAAAAAAAAAAAAAAAA",assetJSON.toString());
-        return assetJSON.toString();
+        const asset = assetJSON.toString();
+
+        //No Asset found, return empty response
+        if (!asset) {
+            throw new Error(`${assetID} does not exist in collection ${assetCollection}.`);
+        }
+
+        return asset;
     }
 
-
-
+    // AgreeToTransfer is used by the potential buyer of the asset to agree to the
+    // asset value. The agreed to appraisal value is stored in the buying orgs
+    // org specifc collection, while the the buyer client ID is stored in the asset collection
+    // using a composite key
     async AgreeToTransfer(ctx){
-        const ClientID = await ctx.clientIdentity.getMSPID();
-        if (!ClientID && ClientID == '') {
-            throw new Error(`Failed to read clientID`);
-        }
 
+        // Get ID of submitting client identity
+        const ClientID = await this.submittingClientIdentity(ctx);
+
+	    // Value is private, therefore it gets passed in transient field
         const transientMap = await ctx.stub.getTransient();
 
-        if (!transientMap) {
-            throw new Error(`error getting transient`);
-        }
-
-
-        console.log("XXXXXXXXXXX - transientMap to debug", transientMap);
+	    // Persist the JSON bytes as-is so that there is no risk of nondeterministic marshaling.
         const transientAssetJSON = transientMap.get("asset_value");
-        console.log("XXXXXXXXXXX - transientAssetJSON to debug", transientAssetJSON.toString());
-
 
         if (!transientAssetJSON) {
-            throw new Error(`asset not found in the transient map input`);
+            throw new Error(`The asset was not found in the transient map input.`);
         }
 
         let valueJSON = JSON.parse(transientAssetJSON);
 
-        console.log("XXXXXXXXXXXAA - assetInput to debug", valueJSON);
-
+        // Do some error checking since we get the chance
         if (!valueJSON.assetID && valueJSON.assetID === "") {
             throw new Error(`assetID field must be a non-empty string`);
         }
@@ -225,40 +226,24 @@ class PrivateAssetTransfer extends Contract {
             throw new Error(`AppraisedValue field must be a non-empty string`);
         }
 
+        // Read asset from the private data collection
         const asset = await this.ReadAsset(ctx, valueJSON.assetID);
-        console.log("NNNNNNNNNNNNNNNN asset.toString()", asset.toString());
 
-        const peerMSPID = await ctx.stub.getMspID();
+        // Verify that the client is submitting request to peer in their organization
+        await this.verifyClientOrgMatchesPeerOrg(ctx);
 
-        console.log("ZZZZZZZZZZZZZZZZ- peerMSPID to debug", peerMSPID);
+	    // Get collection name for this organization. Needs to be read by a member of the organization.
+        const orgCollection = await this.getCollectionName(ctx);
 
-        // const user = await ctx.stub.getCreator();
+        // Put agreed value in the org specifc private data collection
+        await ctx.stub.putPrivateData(orgCollection, valueJSON.assetID, Buffer.from(stringify(sortKeysRecursive(valueJSON))))
 
-        // console.log("OOOOOOOOOOOo- user to debug", user.idBytes);
-
-        const user = await ctx.clientIdentity.getID();
-
-        console.log("OOOOOOOOOOOo- user to debug", user.split("::")[1].split('/')[4].split('=')[1]);
-
-
-        if (ClientID !== peerMSPID) {
-            throw new Error(`client from org %v is not authorized to read or write private data from an org %v peer`);
-        }
-
-        const orgCollection = ClientID + "PrivateCollection";
-
-        const testt = await ctx.stub.putPrivateData(orgCollection, valueJSON.assetID, Buffer.from(stringify(sortKeysRecursive(valueJSON))))
-
-        console.log("OOOOOOOOOOOOOOOOOOO- test to debug", testt.toString());
-
+        // Create agreeement that indicates which identity has agreed to purchase
+	    // In a more realistic transfer scenario, a transfer agreement would be secured to ensure that it cannot
+	    // be overwritten by another channel member.
         let transferAgreeKey = await ctx.stub.createCompositeKey(transferAgreementObjectType, [valueJSON.assetID])
     
-        console.log("XXXXXXXXXXXXXXXXXx- transferAgreeKey to debug", transferAgreeKey.toString());
-    
-        const testts = await ctx.stub.putPrivateData(assetCollection, transferAgreeKey, Buffer.from(stringify(sortKeysRecursive(ClientID))))
-
-        console.log("IIIIIIIIIIIIIIIIIIIIIIIIIIIII- testts to debug", testts.toString());
-
+        await ctx.stub.putPrivateData(assetCollection, transferAgreeKey, Buffer.from(stringify(sortKeysRecursive(ClientID))));
     }
 
 
