@@ -143,7 +143,7 @@ class PrivateAssetTransfer extends Contract {
         }
 
         // Read asset from the private data collection
-        const asset = await this.ReadAsset(ctx, assetTransferInput.ID);
+        let asset = await this.ReadAsset(ctx, assetTransferInput.ID);
 
         if(!asset){
             throw new Error(`${assetTransferInput.ID} does not exist.`);
@@ -153,7 +153,7 @@ class PrivateAssetTransfer extends Contract {
         await this.verifyClientOrgMatchesPeerOrg(ctx);
 
         // Verify transfer details and transfer owner
-        await this.verifyAgreement(ctx, assetTransferInput.ID, asset.Owner, assetTransferInput.BuyerMSP);
+        await this.verifyAgreement(ctx, assetTransferInput.ID, asset.owner, assetTransferInput.BuyerMSP);
 
         const transferAgreement = await this.ReadTransferAgreement(ctx, assetTransferInput.ID);
 
@@ -166,7 +166,12 @@ class PrivateAssetTransfer extends Contract {
         }
 
         // Transfer asset in private data collection to new owner
-	    asset.Owner = transferAgreement.BuyerID;
+        console.log(asset);
+        asset = JSON.parse(asset);
+	    asset.owner = transferAgreement.BuyerID;
+
+        console.log(asset);
+
 
         await ctx.stub.putPrivateData(assetCollection, assetTransferInput.ID, Buffer.from(stringify(sortKeysRecursive(asset))));
 
@@ -174,12 +179,12 @@ class PrivateAssetTransfer extends Contract {
         const ownerCollection = await this.getCollectionName(ctx);
 
         // Delete the asset appraised value from this organization's private data collection
-        await ctx.stub().delPrivateData(ownerCollection, assetTransferInput.ID);
+        await ctx.stub.deletePrivateData(ownerCollection, assetTransferInput.ID);
 
 	    // Delete the transfer agreement from the asset collection
         let transferAgreeKey = await ctx.stub.createCompositeKey(transferAgreementObjectType, [assetTransferInput.ID]);
 
-        await ctx.stub.delPrivateData(assetCollection, transferAgreeKey);
+        await ctx.stub.deletePrivateData(assetCollection, transferAgreeKey);
 
     }
 
@@ -228,6 +233,9 @@ class PrivateAssetTransfer extends Contract {
 
         // Read asset from the private data collection
         const asset = await this.ReadAsset(ctx, valueJSON.assetID);
+        if(!asset){
+            throw new Error(`${assetTransferInput.ID} does not exist.`);
+        }
 
         // Verify that the client is submitting request to peer in their organization
         await this.verifyClientOrgMatchesPeerOrg(ctx);
@@ -246,109 +254,54 @@ class PrivateAssetTransfer extends Contract {
         await ctx.stub.putPrivateData(assetCollection, transferAgreeKey, Buffer.from(stringify(sortKeysRecursive(ClientID))));
     }
 
-
-
-    async DeleteAsset(ctx){
-        const ClientID = await ctx.clientIdentity.getMSPID();
-        if (!ClientID && ClientID == '') {
-            throw new Error(`Failed to read clientID`);
-        }
-        const transientMap = await ctx.stub.getTransient();
-        if (!transientMap) {
-            throw new Error(`error getting transient`);
-        }
-        console.log("XXXXXXXXXXX - transientMap to debug", transientMap);
-        const transientDeleteJSON = transientMap.get("asset_delete");
-        console.log("XXXXXXXXXXX - transientDeleteJSON to debug", transientDeleteJSON.toString());
-        if (!transientDeleteJSON) {
-            throw new Error(`asset not found in the transient map input`);
-        }
-        let assetDelete = JSON.parse(transientDeleteJSON);
-        console.log("XXXXXXXXXXXAA - assetInput to debug", assetDelete);
-        if (!assetDelete.assetID && assetDelete.assetID === "") {
-            throw new Error(`assetID field must be a non-empty string`);
-        }
-        const peerMSPID = await ctx.stub.getMspID();
-        console.log("ZZZZZZZZZZZZZZZZ- peerMSPID to debug", peerMSPID);
-        const user = await ctx.clientIdentity.getID();
-        console.log("OOOOOOOOOOOo- user to debug", user.split("::")[1].split('/')[4].split('=')[1]);
-        if (ClientID !== peerMSPID) {
-            throw new Error(`client from org %v is not authorized to read or write private data from an org %v peer`);
-        }
-
-        const ownerCollection = ClientID + "PrivateCollection";
-
-
-        const testss = await ctx.stub.deletePrivateData(ownerCollection, assetDelete.assetID)
-
-        console.log("GGGGGGGGGGGGGGGGGGGGGGG- test to debug", testss.toString());
-
-        const testsss = await ctx.stub.deletePrivateData(ownerCollection, assetDelete.assetID)
-
-        console.log("OOOOOOOOOOOOOOOOOOO- test to debug", testsss.toString());
-    }
-
+    // DeleteTranferAgreement can be used by the buyer to withdraw a proposal from
+    // the asset collection and from his own collection.
     async DeleteTransferAgreement(ctx){
-        const ClientID = await ctx.clientIdentity.getMSPID();
-        if (!ClientID && ClientID == '') {
-            throw new Error(`Failed to read clientID`);
-        }
+
         const transientMap = await ctx.stub.getTransient();
         if (!transientMap) {
             throw new Error(`error getting transient`);
         }
-        console.log("XXXXXXXXXXX - transientMap to debug", transientMap);
+
+        // Asset properties are private, therefore they get passed in transient field
         const transientDeleteJSON = transientMap.get("agreement_delete");
-        console.log("XXXXXXXXXXX - transientDeleteJSON to debug", transientDeleteJSON.toString());
         if (!transientDeleteJSON) {
-            throw new Error(`asset not found in the transient map input`);
+            throw new Error(`Asset not found in the transient map input`);
         }
+
         let assetDelete = JSON.parse(transientDeleteJSON);
-        console.log("XXXXXXXXXXXAA - assetInput to debug", assetDelete);
         if (!assetDelete.assetID && assetDelete.assetID === "") {
             throw new Error(`assetID field must be a non-empty string`);
         }
-        const peerMSPID = await ctx.stub.getMspID();
-        console.log("ZZZZZZZZZZZZZZZZ- peerMSPID to debug", peerMSPID);
-        const user = await ctx.clientIdentity.getID();
-        console.log("OOOOOOOOOOOo- user to debug", user.split("::")[1].split('/')[4].split('=')[1]);
-        if (ClientID !== peerMSPID) {
-            throw new Error(`client from org %v is not authorized to read or write private data from an org %v peer`);
-        }
 
-        const orgCollection = ClientID + "PrivateCollection";
+        // Verify that the client is submitting request to peer in their organization
+        await this.verifyClientOrgMatchesPeerOrg(ctx);
 
+        // Delete private details of agreement
+        const orgCollection = await this.getCollectionName(ctx);
 
         let transferAgreeKey = await ctx.stub.createCompositeKey(transferAgreementObjectType, [assetDelete.assetID])
-    
-        console.log("XXXXXXXXXXXXXXXXXx- transferAgreeKey to debug", transferAgreeKey.toString());
-    
 
-        const valAsBytes = await ctx.stub.getPrivateData(assetCollection, transferAgreeKey)
+        const valAsBytes = await ctx.stub.getPrivateData(assetCollection, transferAgreeKey);
 
-        console.log("OOOOOOOOOOOOOOOOOOO- test to debug", valAsBytes.toString());
-    
         if (!valAsBytes) {
-            throw new Error(`asset's transfer_agreement does not exist`);
+            throw new Error(`Asset's transfer_agreement does not exist.`);
         }
 
-        const testss = await ctx.stub.deletePrivateData(orgCollection, assetDelete.assetID)
+        await ctx.stub.deletePrivateData(orgCollection, assetDelete.assetID);
 
-        console.log("GGGGGGGGGGGGGGGGGGGGGGG- test to debug", testss.toString());
-
-        const testsss = await ctx.stub.deletePrivateData(assetCollection, transferAgreeKey)
-
-        console.log("OOOOOOOOOOOOOOOOOOO- test to debug", testsss.toString());
-    
+        // Delete transfer agreement record
+        await ctx.stub.deletePrivateData(assetCollection, transferAgreeKey);
     }
 
-
-
-
+    // ReadTransferAgreement gets the buyer's identity from the transfer agreement from collection
     async ReadTransferAgreement(ctx, assetID){
         const transferAgreeKey = await ctx.stub.createCompositeKey(transferAgreementObjectType, [assetID]);
         const buyerIdentity = await ctx.stub.getPrivateData(assetCollection, transferAgreeKey);
-        console.log("OO response to debug========", buyerIdentity);
+        
+        if(!buyerIdentity.toString()) {
+            return Error(`TransferAgreement for ${assetID} does not exist.`)
+        }
 
         const agreement = {
             ID: assetID,
@@ -357,8 +310,47 @@ class PrivateAssetTransfer extends Contract {
         return agreement;
     }
 
+    // DeleteAsset can be used by the owner of the asset to delete the asset
+    async DeleteAsset(ctx){
 
+        const transientMap = await ctx.stub.getTransient();
+        if (!transientMap) {
+            throw new Error(`error getting transient`);
+        }
+        // Asset properties are private, therefore they get passed in transient field
+        const transientDeleteJSON = transientMap.get("asset_delete");
 
+        if (!transientDeleteJSON) {
+            throw new Error(`asset not found in the transient map input`);
+        }
+
+        let assetDelete = JSON.parse(transientDeleteJSON);
+        if (!assetDelete.assetID && assetDelete.assetID === "") {
+            throw new Error(`assetID field must be a non-empty string`);
+        }
+
+        // Verify that the client is submitting request to peer in their organization
+	    await this.verifyClientOrgMatchesPeerOrg(ctx);
+
+        let assetAsBytes = await ctx.stub.getPrivateData(assetCollection, assetDelete.assetID);
+        if (assetAsBytes == '') {
+            throw new Error(`The asset not found`);
+        }
+
+        const ownerCollection = await this.getCollectionName(ctx);
+
+        assetAsBytes = await ctx.stub.getPrivateData(ownerCollection, assetDelete.assetID);
+        if (assetAsBytes == '') {
+            throw new Error(`The asset not found in owner s private collection.`);
+        }
+
+        // delete the asset from state
+        await ctx.stub.deletePrivateData(assetCollection, assetDelete.assetID)
+
+        // Finally, delete private details of asset
+        await ctx.stub.deletePrivateData(ownerCollection, assetDelete.assetID)
+
+    }
 
     // submittingClientIdentity is an internal function to get client identity who submit the transaction.
     async submittingClientIdentity(ctx){
