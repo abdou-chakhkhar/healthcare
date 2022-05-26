@@ -53,6 +53,12 @@ export class CarTransferContract extends Contract {
         }
         await ctx.stub.putState(ID, Buffer.from(JSON.stringify(car)));
 
+        let indexName = 'brand~id';
+        let brandIdIndexKey = await ctx.stub.createCompositeKey(indexName, [car.Brand, car.ID]);
+        
+		//  Save index entry to state. Only the key name is needed, no need to store a duplicate copy of the marble.
+		//  Note - passing a 'nil' value will effectively delete the key from state, therefore we pass null character as value
+		await ctx.stub.putState(brandIdIndexKey, Buffer.from('\u0000'));
         return JSON.stringify(car);
     }
 
@@ -80,11 +86,38 @@ export class CarTransferContract extends Contract {
 
     @Transaction()
     public async deleteCar(ctx: Context, ID: string): Promise<void> {
+        if (!ID) {
+			throw new Error('Car ID must not be empty');
+		}
         const exists = await this.CarExists(ctx, ID);
         if(!exists){
             throw new Error(`The car with this ${ID} does not exist.`);
         }
-        await ctx.stub.deleteState(ID);
+
+		let valAsbytes = await ctx.stub.getState(ID); 
+		let jsonResp = {error: null, };
+		if (!valAsbytes) {
+			jsonResp.error = `Asset does not exist: ${ID}`;
+			throw new Error(JSON.stringify(jsonResp));
+		}
+		let carJSON;
+		try {
+			carJSON = JSON.parse(valAsbytes.toString());
+		} catch (err) {
+			jsonResp = { error: null};
+			jsonResp.error = `Failed to decode JSON of: ${ID}`;
+			throw new Error(JSON.stringify(jsonResp));
+		}
+		await ctx.stub.deleteState(ID); 
+
+        // delete the index
+		let indexName = 'brand~id';
+		let brandIdIndexKey = ctx.stub.createCompositeKey(indexName, [carJSON.brand, carJSON.ID]);
+		if (!brandIdIndexKey) {
+			throw new Error(' Failed to create the createCompositeKey');
+		}
+		//  Delete index entry to state.
+		await ctx.stub.deleteState(brandIdIndexKey);
     }
 
     @Transaction(false)
@@ -96,33 +129,122 @@ export class CarTransferContract extends Contract {
 
     @Transaction()
     public async transferCarOwnership(ctx: Context, ID: string, newOwner: string): Promise<void> {
-        const carString = await this.getCar(ctx, ID);
-        const car = JSON.parse(carString);
-        car.Owner = newOwner; // you cna check if they are different
-        await ctx.stub.putState(ID, Buffer.from(JSON.stringify(car)));
+        let carAsBytes = await ctx.stub.getState(ID);
+		if (!carAsBytes || !carAsBytes.toString()) {
+			throw new Error(`Asset ${ID} does not exist`);
+		}
+		let carOwnershipToTransfer = {Owner: ""};
+		try {
+			carOwnershipToTransfer = JSON.parse(carAsBytes.toString()); //unmarshal
+		} catch (err) {
+			let jsonResp = { error: null };
+			jsonResp.error = 'Failed to decode JSON of: ' + ID;
+			throw new Error(JSON.stringify(jsonResp));
+		}
+		carOwnershipToTransfer.Owner = newOwner; //change the owner
+
+		let assetJSONasBytes = Buffer.from(JSON.stringify(carOwnershipToTransfer));
+		await ctx.stub.putState(ID, assetJSONasBytes); 
+    }
+
+    @Transaction()
+    public async transferCarOwnershipByBrand(ctx: Context, Brand: string, newOwner: string): Promise<void> {
+		// Query the brand~id index by color
+		// This will execute a key range query on all keys starting with 'color'
+        let brandedCarsResultsIterator = await ctx.stub.getStateByPartialCompositeKey('brand~id', [Brand]);
+
+		// Iterate through result set and for each car found, transfer to newOwner
+		let responseRange = await brandedCarsResultsIterator.next();
+		while (!responseRange.done) {
+			if (!responseRange || !responseRange.value || !responseRange.value.key) {
+				return;
+			}
+
+			let objectType;
+			let attributes;
+			(
+				{objectType, attributes} = await ctx.stub.splitCompositeKey(responseRange.value.key)
+			);
+
+			console.log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ", objectType);
+			console.log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ", attributes);
+
+			let returnedAssetName = attributes[1];
+
+			// Now call the transfer function for the found asset.
+			// Re-use the same function that is used to transfer individual cars
+			await this.transferCarOwnership(ctx, returnedAssetName, newOwner);
+			responseRange = await brandedCarsResultsIterator.next();
+		}        
+
     }
 
     @Transaction(false)
+    @Returns('string') // StateQueryIterator
+    // public async GetAllCars(iterator: any, isHistory: boolean): Promise<object> {
+	// 	let allResults = [];
+	// 	let res = await iterator.next();
+	// 	while (!res.done) {
+	// 		if (res.value && res.value.value.toString()) {
+	// 			let jsonRes = {TxId: null, Timestamp: null, Value: null, Key: null, Record: null, };
+	// 			console.log(res.value.value.toString('utf8'));
+	// 			if (isHistory && isHistory === true) {
+	// 				jsonRes.TxId = res.value.tx_id;
+	// 				jsonRes.Timestamp = res.value.timestamp;
+	// 				try {
+	// 					jsonRes.Value = JSON.parse(res.value.value.toString('utf8'));
+	// 				} catch (err) {
+	// 					console.log(err);
+	// 					jsonRes.Value = res.value.value.toString('utf8');
+	// 				}
+	// 			} else {
+	// 				jsonRes.Key = res.value.key;
+	// 				try {
+	// 					jsonRes.Record = JSON.parse(res.value.value.toString('utf8'));
+	// 				} catch (err) {
+	// 					console.log(err);
+	// 					jsonRes.Record = res.value.value.toString('utf8');
+	// 				}
+	// 			}
+	// 			allResults.push(jsonRes);
+	// 		}
+	// 		res = await iterator.next();
+	// 	}
+	// 	iterator.close();
+	// 	return allResults;
+    // }
+
+    @Transaction(false)
     @Returns('string')
-    public async GetAllCars(ctx: Context): Promise<string> {
-        const allResults = [];
-        // range query with empty string for startKey and endKey does an open-ended query of all assets in the chaincode namespace.
-        const iterator = await ctx.stub.getStateByRange('', '');
-        let result = await iterator.next();
-        while (!result.done) {
-            const strValue = Buffer.from(result.value.value.toString()).toString('utf8');
-            let record;
-            try {
-                record = JSON.parse(strValue);
-            } catch (err) {
-                console.log(err);
-                record = strValue;
-            }
-            allResults.push({Key: result.value.key, Record: record});
-            result = await iterator.next();
-        }
+    public async GetCarsByRange(ctx: Context, startKey: string, endKey: string): Promise<string> {
+        let iterator = await ctx.stub.getStateByRange(startKey, endKey);
+
+        let allResults = [];
+		let res = await iterator.next();
+		while (!res.done) {
+			if (res.value && res.value.value.toString()) {
+				let jsonRes = { Key: null, Record: null, };
+				console.log(res.value.value.toString());
+
+					jsonRes.Key = res.value.key;
+					try {
+						jsonRes.Record = JSON.parse(res.value.value.toString());
+					} catch (err) {
+						console.log(err);
+						jsonRes.Record = res.value.value.toString();
+					}
+				
+				allResults.push(jsonRes);
+			}
+			res = await iterator.next();
+		}
+		//iterator.close();
+
+        console.log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ", allResults);
+
         return JSON.stringify(allResults);
     }
+
 
         // console.log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ", car.length);
     // console.log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ", car.toString());
