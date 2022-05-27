@@ -180,41 +180,6 @@ export class CarTransferContract extends Contract {
     }
 
     @Transaction(false)
-    @Returns('string') // StateQueryIterator
-    // public async GetAllCars(iterator: any, isHistory: boolean): Promise<object> {
-	// 	let allResults = [];
-	// 	let res = await iterator.next();
-	// 	while (!res.done) {
-	// 		if (res.value && res.value.value.toString()) {
-	// 			let jsonRes = {TxId: null, Timestamp: null, Value: null, Key: null, Record: null, };
-	// 			console.log(res.value.value.toString('utf8'));
-	// 			if (isHistory && isHistory === true) {
-	// 				jsonRes.TxId = res.value.tx_id;
-	// 				jsonRes.Timestamp = res.value.timestamp;
-	// 				try {
-	// 					jsonRes.Value = JSON.parse(res.value.value.toString('utf8'));
-	// 				} catch (err) {
-	// 					console.log(err);
-	// 					jsonRes.Value = res.value.value.toString('utf8');
-	// 				}
-	// 			} else {
-	// 				jsonRes.Key = res.value.key;
-	// 				try {
-	// 					jsonRes.Record = JSON.parse(res.value.value.toString('utf8'));
-	// 				} catch (err) {
-	// 					console.log(err);
-	// 					jsonRes.Record = res.value.value.toString('utf8');
-	// 				}
-	// 			}
-	// 			allResults.push(jsonRes);
-	// 		}
-	// 		res = await iterator.next();
-	// 	}
-	// 	iterator.close();
-	// 	return allResults;
-    // }
-
-    @Transaction(false)
     @Returns('string')
     public async GetCarsByRange(ctx: Context, startKey: string, endKey: string): Promise<string> {
         let iterator = await ctx.stub.getStateByRange(startKey, endKey);
@@ -245,7 +210,151 @@ export class CarTransferContract extends Contract {
         return JSON.stringify(allResults);
     }
 
+    @Transaction(false)
+    @Returns('string')
+    public async GetCarsByOwner(ctx: Context, owner: string): Promise<string> {
+        let queryString = {selector: { docType: null, owner: null } };
+		//queryString.selector = {};
+		queryString.selector.docType = 'asset';
+		queryString.selector.owner = owner;
+		return await this.GetQueryResultForQueryString(ctx, JSON.stringify(queryString)); //shim.success(queryResults);        
+    }
+
+    @Transaction(false)
+    @Returns('string')
+    public async GetQueryResultForQueryString(ctx: Context, queryString: string): Promise<string> {
+        let iterator = await ctx.stub.getQueryResult(queryString);
+
+		let allResults = [];
+		let res = await iterator.next();
+		while (!res.done) {
+			if (res.value && res.value.value.toString()) {
+				let jsonRes = { Key: null, Record: null };
+				console.log(res.value.value.toString());
+	
+					jsonRes.Key = res.value.key;
+					try {
+						jsonRes.Record = JSON.parse(res.value.value.toString());
+					} catch (err) {
+						console.log(err);
+						jsonRes.Record = res.value.value.toString();
+					}
+				
+				allResults.push(jsonRes);
+			}
+			res = await iterator.next();
+		}
+
+        return JSON.stringify(allResults);
+    }
+
+    @Transaction(false)
+    @Returns('string')
+    public async GetCarsByRangeWithPagination(ctx: Context, startKey: string, endKey: string, pageSize: number, bookmark: string): Promise<string> {
+		const {iterator, metadata} = await ctx.stub.getStateByRangeWithPagination(startKey, endKey, pageSize, bookmark);
+
+		let allResults;
+		let res = await iterator.next();
+		while (!res.done) {
+			if (res.value && res.value.value.toString()) {
+				let jsonRes = { Key: null, Record: null };
+				console.log(res.value.value.toString());
+	
+					jsonRes.Key = res.value.key;
+					try {
+						jsonRes.Record = JSON.parse(res.value.value.toString());
+					} catch (err) {
+						console.log(err);
+						jsonRes.Record = res.value.value.toString();
+					}
+				
+				allResults.push(jsonRes);
+			}
+			res = await iterator.next();
+		}
+
+        allResults.ResponseMetadata = {
+			RecordsCount: metadata.fetchedRecordsCount,
+			Bookmark: metadata.bookmark,
+		};
+
+        return JSON.stringify(allResults);
+    }
+
+    @Transaction(false)
+    @Returns('string')
+    public async QueryCarsWithPagination(ctx: Context, queryString: string, pageSize: number, bookmark: string ): Promise<string> {
+		const {iterator, metadata} = await ctx.stub.getQueryResultWithPagination(queryString, pageSize, bookmark);
+
+		let allResults;
+		let res = await iterator.next();
+		while (!res.done) {
+			if (res.value && res.value.value.toString()) {
+				let jsonRes = { Key: null, Record: null };
+				console.log(res.value.value.toString());
+	
+					jsonRes.Key = res.value.key;
+					try {
+						jsonRes.Record = JSON.parse(res.value.value.toString());
+					} catch (err) {
+						console.log(err);
+						jsonRes.Record = res.value.value.toString();
+					}
+				
+				allResults.push(jsonRes);
+			}
+			res = await iterator.next();
+		}
+
+        allResults.ResponseMetadata = {
+			RecordsCount: metadata.fetchedRecordsCount,
+			Bookmark: metadata.bookmark,
+		};
+
+        return JSON.stringify(allResults);
+    }
+
+    @Transaction(false)
+    @Returns('string')
+    // public async GetCarHistory(ctx: Context, carID: string): Promise<string> {
+
+	// 	let iterator = await ctx.stub.getHistoryForKey(carID);      
+
+	// 	let allResults = [];
+	// 	let res = await iterator.next();
+	// 	while (!res.done) {
+	// 		if (res.value && res.value.value.toString()) {
+	// 			let jsonRes = {Key: null, };
+	// 			console.log(res.value.value.toString());
+	// 			// if (isHistory && isHistory === true) {
+	// 			// 	jsonRes.TxId = res.value.tx_id;
+	// 			// 	jsonRes.Timestamp = res.value.timestamp;
+	// 			// 	try {
+	// 			// 		jsonRes.Value = JSON.parse(res.value.value.toString('utf8'));
+	// 			// 	} catch (err) {
+	// 			// 		console.log(err);
+	// 			// 		jsonRes.Value = res.value.value.toString('utf8');
+	// 			// 	}
+	// 			// } else {
+	// 				jsonRes.Key = res.value.key;
+	// 				try {
+	// 					jsonRes.Record = JSON.parse(res.value.value.toString('utf8'));
+	// 				} catch (err) {
+	// 					console.log(err);
+	// 					jsonRes.Record = res.value.value.toString('utf8');
+	// 				}
+	// 			//}
+	// 			allResults.push(jsonRes);
+	// 		}
+	// 		res = await iterator.next();
+	// 	}
+
+
+    //     return JSON.stringify(allResults);
+    // }
 
         // console.log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ", car.length);
     // console.log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ", car.toString());
+
+    
 }
